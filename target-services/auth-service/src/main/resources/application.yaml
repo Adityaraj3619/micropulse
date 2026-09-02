@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: authservice
+
+Management:
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics, info
