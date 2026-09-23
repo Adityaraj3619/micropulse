@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: monitoring-engine
+
+server:
+  port: 8090
+
+micropulse:
+  targets:
+    - name: auth-service
+      base-url: http://localhost:8080
+    - name: payment-service
+      base-url: http://localhost:8081
