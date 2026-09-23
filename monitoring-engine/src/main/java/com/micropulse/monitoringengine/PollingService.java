@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import com.micropulse.monitoringengine.dto.HealthResponse;
+import com.micropulse.monitoringengine.dto.HealthTick;
 import com.micropulse.monitoringengine.dto.MetricResponse;
 import com.micropulse.monitoringengine.dto.MetricsTick;
 
@@ -79,15 +82,22 @@ public class PollingService {
 
 
     private void pollHealth(TargetServiceProperties.Target target) {
-        String healthUrl = target.getBaseUrl() + "/actuator/health";
+    String healthUrl = target.getBaseUrl() + "/actuator/health";
 
-        webClient.get()
-                .uri(healthUrl)
-                .retrieve()
-                .bodyToMono(String.class)
-                .subscribe(
-                        response -> log.info("[{}] Health check succeeded: {}", target.getName(), response),
-                        error -> log.warn("[{}] Health check failed: {}", target.getName(), error.getMessage())
-                );
-    }   
+    webClient.get()
+            .uri(healthUrl)
+            .retrieve()
+            .bodyToMono(HealthResponse.class)
+            .subscribe(
+                    response -> {
+                        HealthTick tick = new HealthTick();
+                        tick.setServiceId(target.getName());
+                        tick.setStatus(response.getStatus());
+                        tick.setTimestamp(System.currentTimeMillis());
+
+                        log.info("[{}] {}", target.getName(), tick);
+                    },
+                    error -> log.warn("[{}] Health check failed: {}", target.getName(), error.getMessage())
+            );
+} 
 }
