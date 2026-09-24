@@ -1,6 +1,10 @@
 spring:
   application:
     name: monitoring-engine
+  data:
+    redis:
+      host: localhost
+      port: 6379
 
 server:
   port: 8090

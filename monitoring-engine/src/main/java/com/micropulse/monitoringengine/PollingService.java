@@ -4,6 +4,7 @@ import com.micropulse.monitoringengine.config.TargetServiceProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -22,11 +23,13 @@ public class PollingService {
 
     private final WebClient webClient;
     private final TargetServiceProperties targetServiceProperties;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     @Autowired
-    public PollingService(WebClient webClient, TargetServiceProperties targetServiceProperties) {
+    public PollingService(WebClient webClient, TargetServiceProperties targetServiceProperties , RedisTemplate<String, Object> redisTemplate) {
         this.webClient = webClient;
         this.targetServiceProperties = targetServiceProperties;
+        this.redisTemplate = redisTemplate;
     }
 
 
@@ -62,6 +65,7 @@ public class PollingService {
                             tick.setCpuUsagePercent(cpu * 100);
 
                             log.info("[{}] {}", target.getName(), tick);
+                            saveToRedis("metrics:" + target.getName(), tick.getTimestamp(), tick);
                         },
                         error -> log.warn("[{}] Metrics poll failed: {}", target.getName(), error.getMessage())
                 );
@@ -96,8 +100,21 @@ public class PollingService {
                         tick.setTimestamp(System.currentTimeMillis());
 
                         log.info("[{}] {}", target.getName(), tick);
+                        saveToRedis("health:" + target.getName(), tick.getTimestamp(), tick);
                     },
                     error -> log.warn("[{}] Health check failed: {}", target.getName(), error.getMessage())
             );
-} 
+    } 
+
+    private void saveToRedis(String redisKey, long timestamp, Object tick) {
+        try {
+            redisTemplate.opsForZSet().add(redisKey, tick, timestamp);
+            long fifteenMinutesAgo = System.currentTimeMillis() - (15 * 60 * 1000);
+            redisTemplate.opsForZSet().removeRangeByScore(redisKey, 0, fifteenMinutesAgo);
+
+            log.info("Saved to Redis: {}", redisKey);
+        } catch (Exception e) {
+            log.error("Failed to save to Redis, key={}", redisKey, e);
+        }
+    }
 }
