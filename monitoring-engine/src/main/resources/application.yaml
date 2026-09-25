@@ -5,6 +5,10 @@ spring:
     redis:
       host: localhost
       port: 6379
+  datasource:
+    url: jdbc:postgresql://localhost:5432/micropulse
+    username: postgres
+    password: micropulse
 
 server:
   port: 8090
