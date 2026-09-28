@@ -1,3 +1,4 @@
+debug: true
 spring:
   application:
     name: monitoring-engine
@@ -9,6 +10,9 @@ spring:
     url: jdbc:postgresql://localhost:5432/micropulse
     username: postgres
     password: micropulse
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
 server:
   port: 8090
