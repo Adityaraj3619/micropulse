@@ -33,17 +33,26 @@ public class RollupService {
         this.metricRollupRepository = metricRollupRepository;
     }
 
-    @Scheduled(fixedRate = 60000)
-    public void aggregateAllTargets() {
+    @Scheduled(fixedRate = 60000, initialDelay = 60000)
+    public void aggregateOneMinute() {
+        aggregateAllTargets(60_000L, "ONE_MIN");
+    }
+
+    @Scheduled(fixedRate = 300000, initialDelay = 300000)
+    public void aggregateFiveMinutes() {
+        aggregateAllTargets(300_000L, "FIVE_MIN");
+    }
+
+    private void aggregateAllTargets(long windowMillis, String windowLabel) {
         long windowEndMillis = System.currentTimeMillis();
-        long windowStartMillis = windowEndMillis - 60000;
+        long windowStartMillis = windowEndMillis - windowMillis;
 
         for (TargetServiceProperties.Target target : targetServiceProperties.getTargets()) {
-            aggregateOneTarget(target.getName(), windowStartMillis, windowEndMillis);
+            aggregateOneTarget(target.getName(), windowStartMillis, windowEndMillis, windowLabel);
         }
     }
 
-    private void aggregateOneTarget(String serviceId, long windowStartMillis, long windowEndMillis) {
+    private void aggregateOneTarget(String serviceId, long windowStartMillis, long windowEndMillis, String windowLabel) {
         Set<Object> metricsRaw = redisTemplate.opsForZSet()
                 .rangeByScore("metrics:" + serviceId, windowStartMillis, windowEndMillis);
 
@@ -51,7 +60,7 @@ public class RollupService {
                 .rangeByScore("health:" + serviceId, windowStartMillis, windowEndMillis);
 
         if (metricsRaw == null || metricsRaw.isEmpty()) {
-            log.warn("[{}] No metrics ticks found for this window, skipping rollup", serviceId);
+            log.warn("[{}] No metrics ticks found for this {} window, skipping rollup", serviceId, windowLabel);
             return;
         }
 
@@ -79,7 +88,7 @@ public class RollupService {
         MetricRollupEntity rollup = new MetricRollupEntity();
         rollup.setServiceId(serviceId);
         rollup.setWindowStart(toLocalDateTime(windowStartMillis));
-        rollup.setWindowSize("ONE_MIN");
+        rollup.setWindowSize(windowLabel);
         rollup.setAvgCpu(avgCpu);
         rollup.setMaxCpu(maxCpu);
         rollup.setAvgHeapUsedMb(avgHeap);
@@ -87,8 +96,8 @@ public class RollupService {
         rollup.setUptimePercent(uptimePercent);
 
         metricRollupRepository.save(rollup);
-        log.info("[{}] Saved rollup: avgCpu={}, maxCpu={}, avgHeap={}, uptime={}%",
-                serviceId, avgCpu, maxCpu, avgHeap, uptimePercent);
+        log.info("[{}] Saved {} rollup: avgCpu={}, maxCpu={}, avgHeap={}, uptime={}%",
+                serviceId, windowLabel, avgCpu, maxCpu, avgHeap, uptimePercent);
     }
 
     private LocalDateTime toLocalDateTime(long millis) {
