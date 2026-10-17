@@ -26,8 +26,8 @@ public class RollupService {
     private final MetricRollupRepository metricRollupRepository;
 
     public RollupService(RedisTemplate<String, Object> redisTemplate,
-                          TargetServiceProperties targetServiceProperties,
-                          MetricRollupRepository metricRollupRepository) {
+                         TargetServiceProperties targetServiceProperties,
+                         MetricRollupRepository metricRollupRepository) {
         this.redisTemplate = redisTemplate;
         this.targetServiceProperties = targetServiceProperties;
         this.metricRollupRepository = metricRollupRepository;
@@ -48,56 +48,68 @@ public class RollupService {
         long windowStartMillis = windowEndMillis - windowMillis;
 
         for (TargetServiceProperties.Target target : targetServiceProperties.getTargets()) {
-            aggregateOneTarget(target.getName(), windowStartMillis, windowEndMillis, windowLabel);
+            try {
+                aggregateOneTarget(target.getName(), windowStartMillis, windowEndMillis, windowLabel);
+            } catch (Exception e) {
+                log.error("[{}] {} rollup failed, continuing: {}", target.getName(), windowLabel, e.getMessage());
+            }
         }
     }
 
     private void aggregateOneTarget(String serviceId, long windowStartMillis, long windowEndMillis, String windowLabel) {
         Set<Object> metricsRaw = redisTemplate.opsForZSet()
                 .rangeByScore("metrics:" + serviceId, windowStartMillis, windowEndMillis);
-
         Set<Object> healthRaw = redisTemplate.opsForZSet()
                 .rangeByScore("health:" + serviceId, windowStartMillis, windowEndMillis);
 
-        if (metricsRaw == null || metricsRaw.isEmpty()) {
-            log.warn("[{}] No metrics ticks found for this {} window, skipping rollup", serviceId, windowLabel);
+        boolean noMetrics = metricsRaw == null || metricsRaw.isEmpty();
+        boolean noHealth = healthRaw == null || healthRaw.isEmpty();
+
+        if (noMetrics && noHealth) {
+            log.warn("[{}] No ticks found for this {} window, skipping rollup", serviceId, windowLabel);
             return;
-        }
-
-        double avgCpu = 0, maxCpu = Double.MIN_VALUE;
-        double avgHeap = 0, maxHeap = Double.MIN_VALUE;
-
-        for (Object obj : metricsRaw) {
-            MetricsTick tick = (MetricsTick) obj;
-            avgCpu += tick.getCpuUsagePercent();
-            avgHeap += tick.getHeapUsedMb();
-            maxCpu = Math.max(maxCpu, tick.getCpuUsagePercent());
-            maxHeap = Math.max(maxHeap, tick.getHeapUsedMb());
-        }
-        avgCpu /= metricsRaw.size();
-        avgHeap /= metricsRaw.size();
-
-        double uptimePercent = 0;
-        if (healthRaw != null && !healthRaw.isEmpty()) {
-            long upCount = healthRaw.stream()
-                    .filter(obj -> "UP".equals(((HealthTick) obj).getStatus()))
-                    .count();
-            uptimePercent = (upCount * 100.0) / healthRaw.size();
         }
 
         MetricRollupEntity rollup = new MetricRollupEntity();
         rollup.setServiceId(serviceId);
         rollup.setWindowStart(toLocalDateTime(windowStartMillis));
         rollup.setWindowSize(windowLabel);
-        rollup.setAvgCpu(avgCpu);
-        rollup.setMaxCpu(maxCpu);
-        rollup.setAvgHeapUsedMb(avgHeap);
-        rollup.setMaxHeapUsedMb(maxHeap);
-        rollup.setUptimePercent(uptimePercent);
+
+        if (!noMetrics) {
+            double cpuSum = 0, heapSum = 0, maxCpu = 0, maxHeap = 0;
+            int cpuCount = 0;
+
+            for (Object obj : metricsRaw) {
+                MetricsTick tick = (MetricsTick) obj;
+                heapSum += tick.getHeapUsedMb();
+                maxHeap = Math.max(maxHeap, tick.getHeapUsedMb());
+
+                if (tick.getCpuUsagePercent() >= 0) {
+                    cpuSum += tick.getCpuUsagePercent();
+                    maxCpu = Math.max(maxCpu, tick.getCpuUsagePercent());
+                    cpuCount++;
+                }
+            }
+
+            rollup.setAvgHeapUsedMb(heapSum / metricsRaw.size());
+            rollup.setMaxHeapUsedMb(maxHeap);
+            if (cpuCount > 0) {
+                rollup.setAvgCpu(cpuSum / cpuCount);
+                rollup.setMaxCpu(maxCpu);
+            }
+        }
+
+        if (!noHealth) {
+            long upCount = healthRaw.stream()
+                    .filter(obj -> "UP".equals(((HealthTick) obj).getStatus()))
+                    .count();
+            rollup.setUptimePercent((upCount * 100.0) / healthRaw.size());
+        }
 
         metricRollupRepository.save(rollup);
         log.info("[{}] Saved {} rollup: avgCpu={}, maxCpu={}, avgHeap={}, uptime={}%",
-                serviceId, windowLabel, avgCpu, maxCpu, avgHeap, uptimePercent);
+                serviceId, windowLabel, rollup.getAvgCpu(), rollup.getMaxCpu(),
+                rollup.getAvgHeapUsedMb(), rollup.getUptimePercent());
     }
 
     private LocalDateTime toLocalDateTime(long millis) {

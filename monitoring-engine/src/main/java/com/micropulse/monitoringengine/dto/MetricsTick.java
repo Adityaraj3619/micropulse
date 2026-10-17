@@ -6,6 +6,7 @@ public class MetricsTick {
     private long timestamp;
     private double cpuUsagePercent;
     private double heapUsedMb;
+    private double heapMaxMb;
     private int activeThreads;
 
     public String getServiceId() {
@@ -40,6 +41,14 @@ public class MetricsTick {
         this.heapUsedMb = heapUsedMb;
     }
 
+    public double getHeapMaxMb() {
+        return heapMaxMb;
+    }
+
+    public void setHeapMaxMb(double heapMaxMb) {
+        this.heapMaxMb = heapMaxMb;
+    }
+
     public int getActiveThreads() {
         return activeThreads;
     }
@@ -54,6 +63,7 @@ public class MetricsTick {
                 ", timestamp=" + timestamp +
                 ", cpu=" + cpuUsagePercent +
                 ", heapMb=" + heapUsedMb +
+                ", heapMaxMb=" + heapMaxMb +
                 ", threads=" + activeThreads + "}";
     }
 }
